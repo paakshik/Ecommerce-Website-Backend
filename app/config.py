@@ -87,7 +87,10 @@ class Settings(BaseSettings):
     @classmethod
     def _validate_postgres_url(cls, v: str) -> str:
         if not v.startswith("postgresql+psycopg://"):
-            raise ValueError("DATABASE_URL must use postgresql+psycopg:// (PostgreSQL only)")
+            if v.startswith("postgresql://"):
+                v = v.replace("postgresql://", "postgresql+psycopg://", 1)
+            else:
+                raise ValueError("DATABASE_URL must use postgresql+psycopg:// (PostgreSQL only)")
         return v
 
     @field_validator("TRUSTED_PROXY_CIDRS")
