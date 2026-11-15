@@ -159,7 +159,7 @@ def create_order(
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail={"error": {"code": "provider_order_failed", "message": "Payment provider order creation failed"}},
+            detail={"error": {"code": "provider_order_failed", "message": f"Payment provider order creation failed: {str(exc)}"}},
         ) from exc
 
     razorpay_order_id = provider_order["id"]
