@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, Request, Response, status
-from sqlalchemy import and_, cast, func, or_, String
+from sqlalchemy import and_, cast, func, or_, String, text
 from sqlalchemy.orm import Session, joinedload
 
 from app import auth as auth_mod, models
@@ -37,15 +37,10 @@ def _payload_hash(body: dict) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
-def _get_user_cart(db: Session, user: models.User):
-    """Return the buyer's current session cart (latest session with a cart)."""
-    session = (
-        db.query(models.Session)
-        .filter(models.Session.user_id == user.id)
-        .order_by(models.Session.created_at.desc())
-        .first()
-    )
-    if session is None:
+def _get_user_cart(db: Session, user: models.User, session_cookie: str | None):
+    """Use the authenticated request's cart, including when multiple devices sign in."""
+    session = auth_mod.get_session(db, session_cookie) if session_cookie else None
+    if session is None or session.user_id != user.id:
         return None
     return db.query(models.Cart).filter(models.Cart.session_id == session.id).first()
 
@@ -95,15 +90,21 @@ def create_order(
     }
     payload_hash = _payload_hash(body)
 
+    # Serialize retries before provider/stock side effects, including requests
+    # arriving at different application workers.
+    lock_key = int.from_bytes(hashlib.sha256(idempotency_key.encode()).digest()[:8], "big", signed=True)
+    db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+
     # Idempotency lookup (quota already consumed above). Owner-scoped so a user
     # cannot replay another user's idempotency key.
     existing = (
         db.query(models.Order)
         .filter(models.Order.idempotency_key == idempotency_key)
-        .filter(models.Order.user_id == user.id)
         .first()
     )
     if existing is not None:
+        if existing.user_id != user.id:
+            raise HTTPException(status_code=409, detail={"error": {"code": "idempotency_conflict", "message": "Please start a new checkout attempt"}})
         if existing.idempotency_payload_hash != payload_hash:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -111,7 +112,7 @@ def create_order(
             )
         return _checkout_response(existing)
 
-    cart = _get_user_cart(db, user)
+    cart = _get_user_cart(db, user, session_cookie)
     if cart is None or not cart.items:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -123,7 +124,7 @@ def create_order(
     subtotal = 0
     all_digital = True
     order_items_input = []
-    for ci in cart.items:
+    for ci in sorted(cart.items, key=lambda item: item.variant_id):
         variant = (
             db.query(models.ProductVariant)
             .filter(models.ProductVariant.id == ci.variant_id)
@@ -154,7 +155,7 @@ def create_order(
     total = subtotal + shipping
 
     # Create the Razorpay order before persisting, so its ID is stored.
-    receipt = f"ord_{user.id}_{int(datetime.now(timezone.utc).timestamp())}"
+    receipt = "ord_" + hashlib.sha256(f"{user.id}:{idempotency_key}".encode()).hexdigest()[:32]
     try:
         provider_order = razorpay_mod.create_order(
             amount_minor=total,
@@ -179,6 +180,7 @@ def create_order(
 
     order = models.Order(
         user_id=user.id,
+        cart_id=cart.id,
         email=user.email,
         status="pending",
         subtotal_minor=subtotal,
@@ -254,7 +256,7 @@ def _order_out(db: Session, order: models.Order) -> OrderOut:
         for it in order.items
     ]
     downloadable = [
-        it.id for it in order.items if it.variant.product.delivery_type == "download"
+        it.id for it in order.items if it.delivery_type in ("download", "both")
     ]
     return OrderOut(
         id=order.id,
@@ -266,6 +268,7 @@ def _order_out(db: Session, order: models.Order) -> OrderOut:
         email=order.email,
         shipping_address=order.shipping_address,
         razorpay_order_id=order.razorpay_order_id,
+        key_id=settings.RAZORPAY_KEY_ID,
         payment_status=_latest_payment_status(db, order),
         created_at=order.created_at,
         items=items,

@@ -184,23 +184,20 @@ def _consume_cart(db, order: models.Order) -> None:
 
     Preserves later additions made after checkout (snapshot semantics).
     """
-    if order.user_id is None:
+    if order.user_id is None or order.cart_id is None:
         return
-    # Find the most recent cart for the user's latest session.
-    session = (
-        db.query(models.Session)
-        .filter(models.Session.user_id == order.user_id)
-        .order_by(models.Session.created_at.desc())
-        .first()
-    )
-    if session is None:
-        return
-    cart = db.query(models.Cart).filter(models.Cart.session_id == session.id).first()
+    cart = db.query(models.Cart).filter(models.Cart.id == order.cart_id).first()
     if cart is None:
         return
-    purchased_variant_ids = {item.variant_id for item in order.items}
-    db.query(models.CartItem).filter(
-        models.CartItem.cart_id == cart.id,
-        models.CartItem.variant_id.in_(purchased_variant_ids),
-    ).delete(synchronize_session=False)
+    for purchased in order.items:
+        item = db.query(models.CartItem).filter(
+            models.CartItem.cart_id == cart.id,
+            models.CartItem.variant_id == purchased.variant_id,
+        ).with_for_update().first()
+        if item is None:
+            continue
+        if item.quantity <= purchased.quantity:
+            db.delete(item)
+        else:
+            item.quantity -= purchased.quantity
     db.flush()

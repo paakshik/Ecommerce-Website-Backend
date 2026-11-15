@@ -174,6 +174,7 @@ class OrderOut(BaseModel):
     email: str
     shipping_address: Optional[Union[str, dict]] = None
     razorpay_order_id: Optional[str] = None
+    key_id: Optional[str] = None
     payment_status: Optional[str] = None
     created_at: datetime
     items: List[OrderItemOut] = []

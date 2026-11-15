@@ -125,6 +125,7 @@ class Order(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    cart_id: Mapped[Optional[int]] = mapped_column(ForeignKey("carts.id", ondelete="SET NULL"), nullable=True)
     email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False, server_default="pending", index=True)
     subtotal_minor: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")

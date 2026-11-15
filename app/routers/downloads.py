@@ -66,7 +66,7 @@ def issue_download_grant(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": {"code": "not_found", "message": "Order item not found"}},
         )
-    if item.variant is None or item.variant.product.delivery_type not in ("download", "both"):
+    if item.variant is None or item.delivery_type not in ("download", "both"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": {"code": "not_downloadable", "message": "Item is not a digital download"}},

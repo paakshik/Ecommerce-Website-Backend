@@ -18,6 +18,7 @@ leak to the frontend. All provider calls use bounded timeouts.
 from typing import Optional
 
 import razorpay
+import requests
 from razorpay.errors import BadRequestError, GatewayError, ServerError, SignatureVerificationError
 
 from app.config import get_settings
@@ -50,13 +51,19 @@ def provider_mode() -> str:
     return "live"
 
 
+class ProviderSession(requests.Session):
+    def request(self, method, url, **kwargs):
+        kwargs.setdefault("timeout", (5, 20))
+        return super().request(method, url, **kwargs)
+
+
 def get_client() -> razorpay.Client:
     """Return a cached Razorpay client authenticated with the server key pair."""
     global _client
     if _client is None:
         _client = razorpay.Client(
             auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET),
-            timeout=30,
+            session=ProviderSession(),
         )
     return _client
 
