@@ -3,8 +3,10 @@
 import hashlib
 import json
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
-from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, Response, status
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, Request, Response, status
+from sqlalchemy import and_, cast, func, or_, String
 from sqlalchemy.orm import Session, joinedload
 
 from app import auth as auth_mod, models
@@ -17,10 +19,13 @@ from app.schemas import (
     CheckoutResponse,
     OrderCreate,
     OrderItemOut,
+    OrderListOut,
     OrderOut,
     PaymentVerify,
 )
-from app.services import payments, razorpay
+from app.services import payments
+from app.services import razorpay as razorpay_mod
+from app.services.razorpay import RazorpayError
 
 settings = get_settings()
 
@@ -90,10 +95,12 @@ def create_order(
     }
     payload_hash = _payload_hash(body)
 
-    # Idempotency lookup (quota already consumed above).
+    # Idempotency lookup (quota already consumed above). Owner-scoped so a user
+    # cannot replay another user's idempotency key.
     existing = (
         db.query(models.Order)
         .filter(models.Order.idempotency_key == idempotency_key)
+        .filter(models.Order.user_id == user.id)
         .first()
     )
     if existing is not None:
@@ -149,18 +156,24 @@ def create_order(
     # Create the Razorpay order before persisting, so its ID is stored.
     receipt = f"ord_{user.id}_{int(datetime.now(timezone.utc).timestamp())}"
     try:
-        provider_order = razorpay.create_order(
+        provider_order = razorpay_mod.create_order(
             amount_minor=total,
             currency=settings.STORE_CURRENCY,
             receipt=receipt,
             notes={"user_id": str(user.id)},
         )
-    except Exception as exc:
+    except RazorpayError:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail={"error": {"code": "provider_order_failed", "message": f"Payment provider order creation failed: {str(exc)}"}},
-        ) from exc
+            detail={"error": {"code": "provider_order_failed", "message": "Payment provider order creation failed"}},
+        )
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"error": {"code": "provider_order_failed", "message": "Payment provider order creation failed"}},
+        )
 
     razorpay_order_id = provider_order["id"]
 
@@ -251,6 +264,7 @@ def _order_out(db: Session, order: models.Order) -> OrderOut:
         total_minor=order.total_minor,
         currency=order.currency,
         email=order.email,
+        shipping_address=order.shipping_address,
         razorpay_order_id=order.razorpay_order_id,
         payment_status=_latest_payment_status(db, order),
         created_at=order.created_at,
@@ -267,6 +281,73 @@ def _latest_payment_status(db: Session, order: models.Order):
         .first()
     )
     return payment.status if payment else None
+
+
+@router.get("/orders", response_model=OrderListOut)
+def list_orders(
+    db: Session = Depends(get_db),
+    user: models.User = Depends(current_user),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    q: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default=None),
+    payment_status: Optional[str] = Query(default=None),
+    created_after: Optional[datetime] = Query(default=None),
+    created_before: Optional[datetime] = Query(default=None),
+):
+    """List the current user's orders, newest first, with pagination, search, and filters.
+
+    Search matches order email or an item's product name. `status` filters on the
+    order fulfillment status; `payment_status` filters on the latest payment status.
+    `created_after` and `created_before` accept ISO datetime strings and filter on
+    the order's created_at. GET is a safe read, so no CSRF token is required.
+    """
+    qry = db.query(models.Order).filter(models.Order.user_id == user.id)
+
+    if status:
+        qry = qry.filter(models.Order.status == status)
+
+    if q:
+        like = f"%{q.strip()}%"
+        qry = qry.filter(
+            or_(
+                models.Order.email.ilike(like),
+                cast(models.Order.id, String).ilike(like),
+                models.Order.items.any(models.OrderItem.product_name.ilike(like)),
+            )
+        )
+
+    if payment_status:
+        # Filter on the latest payment per order (by created_at).
+        latest_created = (
+            db.query(models.Payment.order_id, func.max(models.Payment.created_at).label("max_created"))
+            .group_by(models.Payment.order_id)
+            .subquery()
+        )
+        latest_payment = (
+            db.query(models.Payment)
+            .join(
+                latest_created,
+                and_(
+                    models.Payment.order_id == latest_created.c.order_id,
+                    models.Payment.created_at == latest_created.c.max_created,
+                ),
+            )
+            .subquery()
+        )
+        qry = qry.join(latest_payment, models.Order.id == latest_payment.c.order_id).filter(
+            latest_payment.c.status == payment_status
+        )
+
+    if created_after is not None:
+        qry = qry.filter(models.Order.created_at >= created_after)
+    if created_before is not None:
+        qry = qry.filter(models.Order.created_at <= created_before)
+
+    total = qry.count()
+    rows = qry.order_by(models.Order.created_at.desc()).offset(offset).limit(limit).all()
+    items = [_order_out(db, o) for o in rows]
+    return OrderListOut(items=items, total=total)
 
 
 @router.post("/orders/{order_id}/verify-payment")
@@ -302,7 +383,7 @@ def verify_payment(
         )
 
     # 1. Verify the signature binds payment + order to our secret.
-    if not razorpay.verify_payment_signature(
+    if not razorpay_mod.verify_payment_signature(
         order.razorpay_order_id, payload.razorpay_payment_id, payload.razorpay_signature
     ):
         raise HTTPException(
@@ -312,7 +393,7 @@ def verify_payment(
 
     # 2. Confirm captured status, amount, currency, and order binding with provider.
     try:
-        provider_payment = razorpay.fetch_payment(payload.razorpay_payment_id)
+        provider_payment = razorpay_mod.fetch_payment(payload.razorpay_payment_id)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

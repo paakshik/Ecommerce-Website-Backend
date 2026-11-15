@@ -61,6 +61,24 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     )
 
 
+@app.on_event("startup")
+def _verify_razorpay_on_startup():
+    """Fail fast at startup/redeploy if Razorpay credentials are invalid.
+
+    Only runs when a real provider (live/test) is configured; mock/dev mode is
+    skipped so local development without credentials keeps working. The check is
+    also skipped under pytest (ENV=testing) because tests control provider
+    behavior via monkeypatch. Changing credentials requires a backend restart/
+    redeployment.
+    """
+    from app.services import razorpay
+
+    if razorpay.settings.ENV == "testing":
+        return
+    if razorpay.provider_mode() != "mock":
+        razorpay.verify_razorpay_credentials()
+
+
 @app.get("/api/health")
 async def health():
     from sqlalchemy import text

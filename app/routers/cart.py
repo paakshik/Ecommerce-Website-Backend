@@ -86,7 +86,6 @@ def get_cart(
     """Return the current session cart with backend-recalculated totals."""
     session = _ensure_session(db, response, session_cookie)
     cart = _get_or_create_cart(db, session)
-    db.commit()
     return _cart_total(db, cart)
 
 

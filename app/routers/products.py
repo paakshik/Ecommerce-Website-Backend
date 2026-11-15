@@ -3,6 +3,7 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload, subqueryload
 
 from app import models
@@ -32,7 +33,7 @@ def list_products(
         q = q.join(models.Category).filter(models.Category.slug == category)
     if search:
         like = f"%{search}%"
-        q = q.filter(models.Product.name.ilike(like) | models.Product.slug.ilike(like))
+        q = q.filter(or_(models.Product.name.ilike(like), models.Product.slug.ilike(like)))
     total = q.count()
     rows = q.order_by(models.Product.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
     items = [_product_out(db, r) for r in rows]

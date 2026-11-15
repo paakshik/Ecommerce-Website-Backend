@@ -46,9 +46,10 @@ class Settings(BaseSettings):
     RAZORPAY_KEY_SECRET: str = ""
     RAZORPAY_WEBHOOK_SECRET: str = ""
     RAZORPAY_WEBHOOK_PUBLIC_URL: str = ""
-    # When true (default in non-production), provider calls are faked so
-    # development and E2E can run without real Razorpay credentials. Production
-    # always calls the real provider and requires real secrets (see validator).
+    # When true, Razorpay calls target the TEST environment. With real
+    # ``rzp_test_...`` credentials this creates genuine provider test orders via
+    # the SDK. Without a real-looking key it falls back to mocked ids, which are
+    # prohibited in production (see validator).
     RAZORPAY_TEST_MODE: bool = True
 
     # Store / money
@@ -121,6 +122,25 @@ class Settings(BaseSettings):
                 raise ValueError("PUBLIC_APP_URL and PUBLIC_API_URL must use HTTPS in production")
             if not self.TRUSTED_PROXY_CIDRS:
                 raise ValueError("TRUSTED_PROXY_CIDRS must be configured in production")
+
+            # Razorpay credentials must be real in production. Mock/fabricated
+            # provider ids are prohibited in production.
+            if not self.RAZORPAY_KEY_ID:
+                raise ValueError("RAZORPAY_KEY_ID is required in production")
+            if not self.RAZORPAY_KEY_SECRET:
+                raise ValueError("RAZORPAY_KEY_SECRET is required in production")
+            if self.RAZORPAY_TEST_MODE:
+                if not self.RAZORPAY_KEY_ID.startswith("rzp_test_"):
+                    raise ValueError(
+                        "In production with RAZORPAY_TEST_MODE=true, RAZORPAY_KEY_ID "
+                        "must be a real Razorpay test key (rzp_test_...). Mock keys are prohibited."
+                    )
+            else:
+                if not self.RAZORPAY_KEY_ID.startswith("rzp_live_"):
+                    raise ValueError(
+                        "In production live mode, RAZORPAY_KEY_ID must be a real "
+                        "Razorpay live key (rzp_live_...)."
+                    )
         return self
 
     @property

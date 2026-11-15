@@ -88,7 +88,11 @@ def admin_update_product(
     db: Session = Depends(get_db),
     user: models.User = Depends(require_admin),
 ):
-    product = db.query(models.Product).filter(models.Product.id == product_id).first()
+    try:
+        pid = int(product_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"error": {"code": "not_found", "message": "Product not found"}})
+    product = db.query(models.Product).filter(models.Product.id == pid).first()
     if not product:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"error": {"code": "not_found", "message": "Product not found"}})
     if payload.name is not None:
@@ -129,7 +133,11 @@ def admin_create_variant(
     db: Session = Depends(get_db),
     user: models.User = Depends(require_admin),
 ):
-    product = db.query(models.Product).filter(models.Product.id == product_id).first()
+    try:
+        pid = int(product_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"error": {"code": "not_found", "message": "Product not found"}})
+    product = db.query(models.Product).filter(models.Product.id == pid).first()
     if not product:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"error": {"code": "not_found", "message": "Product not found"}})
     if db.query(models.ProductVariant).filter(models.ProductVariant.sku == payload.sku).first():
@@ -158,9 +166,13 @@ def admin_update_variant(
     db: Session = Depends(get_db),
     user: models.User = Depends(require_admin),
 ):
+    try:
+        pid = int(product_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"error": {"code": "not_found", "message": "Product not found"}})
     variant = (
         db.query(models.ProductVariant)
-        .filter(models.ProductVariant.id == variant_id, models.ProductVariant.product_id == product_id)
+        .filter(models.ProductVariant.id == variant_id, models.ProductVariant.product_id == pid)
         .first()
     )
     if not variant:
@@ -182,9 +194,13 @@ def admin_delete_variant(
     db: Session = Depends(get_db),
     user: models.User = Depends(require_admin),
 ):
+    try:
+        pid = int(product_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"error": {"code": "not_found", "message": "Product not found"}})
     variant = (
         db.query(models.ProductVariant)
-        .filter(models.ProductVariant.id == variant_id, models.ProductVariant.product_id == product_id)
+        .filter(models.ProductVariant.id == variant_id, models.ProductVariant.product_id == pid)
         .first()
     )
     if not variant:
