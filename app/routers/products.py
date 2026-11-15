@@ -61,7 +61,7 @@ def _product_out(db: Session, product: models.Product) -> ProductOut:
         ProductVariantOut.model_validate(v) for v in sorted(product.variants, key=lambda v: v.sku)
     ]
     images = [
-        {"url": f"/api/media/{ma.storage_key}"}
+        f"/api/media/{ma.storage_key}"
         for ma in product.media_assets
     ]
     return ProductOut(
