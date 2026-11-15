@@ -72,12 +72,17 @@ def csrf_valid(
 
 
 def _check_trusted_origin(request: Request) -> None:
+    """Trusted-origin check for CSRF on cookie requests.
+
+    Allows any origin in `settings.allowed_origins` (localhost + Vercel prod/preview).
+    In development, non-matching origins are tolerated; in production they are rejected.
+    """
     settings = get_settings()
     origin = request.headers.get("origin") or request.headers.get("referer")
     if not origin:
         return
-    app_url = settings.PUBLIC_APP_URL.rstrip("/")
-    if not origin.rstrip("/").startswith(app_url):
+    allowed = settings.allowed_origins
+    if not any(origin.rstrip("/").startswith(app_url.rstrip("/")) for app_url in allowed):
         if settings.ENV != "development":
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": {"code": "origin_not_trusted", "message": "Origin not trusted"}})
 

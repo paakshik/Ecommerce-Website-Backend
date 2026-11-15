@@ -1,6 +1,7 @@
 """FastAPI application: middleware, JSON errors, router mounting."""
 
 from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app import rate_limits
@@ -10,6 +11,14 @@ from app.routers import admin, auth, cart, downloads, oauth, orders, products, r
 settings = get_settings()
 
 app = FastAPI(title="Ecommerce API", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def _error_response(status_code: int, code: str, message: str, headers=None):

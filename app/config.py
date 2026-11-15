@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     # Public URLs
     PUBLIC_APP_URL: str = "http://localhost:5173"
     PUBLIC_API_URL: str = "http://localhost:5173/api"
+    # Allowed frontend origins (comma-separated) for CORS and trusted-origin checks.
+    # Includes localhost for local development plus production/preview Vercel domains.
+    ALLOWED_ORIGINS: str = "http://localhost:5173"
+
+    @property
+    def allowed_origins(self) -> List[str]:
+        return [o.strip() for o in self.ALLOWED_ORIGINS.split(",") if o.strip()]
 
     # Session cookie
     SESSION_COOKIE_NAME: str = "ecommerce_session"
