@@ -126,17 +126,18 @@ def set_session_cookie(
     max_age_seconds: int = SESSION_MAX_AGE_SECONDS,
     name: str = SESSION_COOKIE_NAME,
 ) -> None:
-    """Set the opaque session cookie (HttpOnly, SameSite=Lax)."""
+    """Set the opaque session cookie (HttpOnly, SameSite=None for cross-origin when secure)."""
     response.set_cookie(
         key=name,
         value=token,
         max_age=max_age_seconds,
         httponly=True,
-        samesite="lax",
+        samesite="none" if secure else "lax",
         secure=secure,
         path="/",
     )
 
 
-def clear_session_cookie(response, *, name: str = SESSION_COOKIE_NAME) -> None:
-    response.delete_cookie(key=name, path="/", httponly=True, samesite="lax", secure=False)
+def clear_session_cookie(response, *, name: str = SESSION_COOKIE_NAME, secure: bool = False) -> None:
+    """Clear the opaque session cookie (matches set attributes so it is deleted)."""
+    response.delete_cookie(key=name, path="/", httponly=True, samesite="none" if secure else "lax", secure=secure)

@@ -138,7 +138,7 @@ def logout(
     if session_cookie:
         auth_mod.revoke_session(db, session_cookie)
         db.commit()
-    auth_mod.clear_session_cookie(response)
+    auth_mod.clear_session_cookie(response, secure=_secure())
     return None
 
 
