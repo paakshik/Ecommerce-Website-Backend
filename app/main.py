@@ -1,5 +1,7 @@
 """FastAPI application: middleware, JSON errors, router mounting."""
 
+import logging
+
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -7,8 +9,10 @@ from fastapi.responses import JSONResponse
 from app import rate_limits
 from app.config import get_settings
 from app.routers import admin, auth, cart, downloads, oauth, orders, products, reviews, uploads, webhooks, wishlists
+from app.services.razorpay import RazorpayError
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Ecommerce API", version="1.0.0")
 
@@ -63,20 +67,27 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 @app.on_event("startup")
 def _verify_razorpay_on_startup():
-    """Fail fast at startup/redeploy if Razorpay credentials are invalid.
+    """Validate Razorpay credentials at startup without crashing the app.
 
     Only runs when a real provider (live/test) is configured; mock/dev mode is
     skipped so local development without credentials keeps working. The check is
     also skipped under pytest (ENV=testing) because tests control provider
-    behavior via monkeypatch. Changing credentials requires a backend restart/
-    redeployment.
+    behavior via monkeypatch.
+
+    If credential verification fails, a warning is logged and the app continues
+    to start. Checkout endpoints will return a clear error if payment processing
+    is attempted with bad credentials. Changing credentials requires a backend
+    restart/redeployment.
     """
     from app.services import razorpay
 
     if razorpay.settings.ENV == "testing":
         return
     if razorpay.provider_mode() != "mock":
-        razorpay.verify_razorpay_credentials()
+        try:
+            razorpay.verify_razorpay_credentials()
+        except RazorpayError as exc:
+            logger.warning("Razorpay credential check failed at startup: %s", exc)
 
 
 @app.get("/api/health")
