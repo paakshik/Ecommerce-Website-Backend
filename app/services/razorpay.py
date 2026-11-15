@@ -32,7 +32,7 @@ def create_order(amount_minor: int, currency: str, receipt: str, notes=None) -> 
     development and E2E can run without real Razorpay credentials. Production
     always calls the real provider and requires real secrets.
     """
-    if settings.ENV != "production" and settings.RAZORPAY_TEST_MODE:
+    if settings.RAZORPAY_TEST_MODE:
         return {
             "id": f"order_test_{receipt}",
             "amount": amount_minor,
