@@ -46,7 +46,7 @@ def test_checkout_creates_order_and_reserves_stock(client, db, monkeypatch):
     )
     assert r.status_code == 201, r.text
     body = r.json()
-    assert body["key_id"] == ""
+    assert body["key_id"]
     assert body["amount_minor"] == 19998 + 0  # 2 * 9999, flat shipping default 0
     assert body["currency"] == "USD"
     assert body["razorpay_order_id"]
