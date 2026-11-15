@@ -16,3 +16,5 @@ uvicorn==0.54.0
 Pillow==13.0.0
 # Razorpay server-side SDK (orders, signature verification, webhooks)
 razorpay==2.0.1
+# Email validation for Pydantic EmailStr
+email-validator==2.2.0
