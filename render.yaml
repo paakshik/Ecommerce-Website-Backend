@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: nook-backend
+    env: python
+    region: oregon
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "PYTHONPATH=. alembic upgrade head && PYTHONPATH=. python -m app.seed && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: PYTHONPATH
+        value: .
+      - key: DATABASE_URL
+        sync: false
+      - key: ENV
+        value: production
+      - key: SESSION_COOKIE_SECURE
+        value: "true"
+      - key: RAZORPAY_TEST_MODE
+        value: "false"
+      - key: ALLOWED_ORIGINS
+        value: "http://localhost:5173,https://ecommerce-website-frontend1.vercel.app,https://ecommerce-website-frontend-jsgj.vercel.app,https://ecommerce-website-frontend-jsgj-6uag2spdv.vercel.app"
+    disk:
+      name: storage
+      mountPath: /opt/render/project/storage
+      sizeGB: 1
+
+databases:
+  - name: nook-postgres
+    plan: starter
+    databaseName: ecommerce_database_bbgw
+    user: ecommerce_database_bbgw_user
