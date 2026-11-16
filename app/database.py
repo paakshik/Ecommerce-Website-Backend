@@ -22,9 +22,9 @@ Base = declarative_base()
 engine = create_engine(
     settings.DATABASE_URL,
     pool_pre_ping=True,
-    pool_size=3,
-    max_overflow=5,
-    pool_recycle=1800,
+    pool_size=50,
+    max_overflow=50,
+    pool_recycle=1800000,
     pool_timeout=10,
     future=True,
 )
